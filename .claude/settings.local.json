@@ -19,7 +19,8 @@
       "Bash(node -e \"process.stdin.resume\\(\\);let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>console.log\\(JSON.parse\\(d\\).block_height\\)\\)\")",
       "Bash(kill %1)",
       "Bash(node --check server.js)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(wc -l /c/Users/aaa/Documents/Open/striker/src/components/*.jsx)"
     ]
   }
 }
