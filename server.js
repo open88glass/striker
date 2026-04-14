@@ -15,7 +15,7 @@ const API_KEY = process.env.TAOSTATS_API_KEY || ''
 const BASE = 'https://api.taostats.io'
 const RAO = 1e9           // 1 TAO = 1e9 rao (smallest unit)
 const API_TIMEOUT = 25_000 // Taostats can take ~13-15 s on free tier
-const CACHE_TTL   = 60_000 // 60 s keeps us within 5 req/min (2 Taostats + 1 CoinGecko per cycle)
+const CACHE_TTL   = 60_000 // 60 s keeps us within 5 req/min (4 Taostats + 1 CoinGecko per cycle)
 
 // Simple in-memory cache
 const cache = { data: null, ts: 0 }
@@ -41,9 +41,6 @@ async function fetchTaoPrice() {
     return priceCache.usd ?? 0
   }
 }
-
-// GPU-intensive subnets (do heavy ML inference/training)
-const GPU_SUBNETS = new Set([1, 2, 3, 4, 6, 9, 17, 18, 19, 24, 25, 27, 29, 34, 37, 38, 39, 52])
 
 app.use(cors())
 app.use(express.json())
@@ -96,7 +93,7 @@ function normalizePool(raw) {
     tao_flow_1d: 0,               // merged from tao_flow endpoint
     tao_flow_7d: 0,
     owner: '',
-    gpu_intensive: GPU_SUBNETS.has(netuid),
+    gpu_intensive: false,              // enriched from SUBNET_META in buildSubnetData
     // Extra fields from pool endpoint
     fear_and_greed: raw.fear_and_greed_index,
     fear_and_greed_sentiment: raw.fear_and_greed_sentiment,
@@ -114,18 +111,18 @@ function normalizePool(raw) {
   }
 }
 
-// ── Category / description lookup (for known subnets) ─────────────────────────
+// ── Category / description / GPU lookup (for known subnets) ──────────────────
 const SUBNET_META = {
   0:  { category: 'infrastructure', description: 'Root network — validator consensus layer' },
-  1:  { category: 'nlp',            description: 'Text prompting & LLM inference' },
-  2:  { category: 'ai',             description: 'AI health data & continual learning' },
-  3:  { category: 'audio',          description: 'Voice synthesis & TTS generation' },
-  4:  { category: 'nlp',            description: 'LLM reasoning & verifiable inference' },
+  1:  { category: 'nlp',            description: 'Text prompting & LLM inference',                 gpu: true },
+  2:  { category: 'ai',             description: 'AI health data & continual learning',             gpu: true },
+  3:  { category: 'audio',          description: 'Voice synthesis & TTS generation',                gpu: true },
+  4:  { category: 'nlp',            description: 'LLM reasoning & verifiable inference',            gpu: true },
   5:  { category: 'data',           description: 'Web3 social & financial search engine' },
-  6:  { category: 'nlp',            description: 'LLM fine-tuning & RLHF' },
+  6:  { category: 'nlp',            description: 'LLM fine-tuning & RLHF',                         gpu: true },
   7:  { category: 'infrastructure', description: 'Decentralized network infrastructure' },
   8:  { category: 'finance',        description: 'Proprietary trading network & forecasting' },
-  9:  { category: 'nlp',            description: 'Large language model pretraining' },
+  9:  { category: 'nlp',            description: 'Large language model pretraining',                gpu: true },
   10: { category: 'finance',        description: 'DeFi lending optimization & yield' },
   11: { category: 'audio',          description: 'Audio transcription & speech recognition' },
   12: { category: 'data',           description: 'On-chain analytics & blockchain data' },
@@ -133,23 +130,25 @@ const SUBNET_META = {
   14: { category: 'security',       description: 'LLM security & adversarial robustness' },
   15: { category: 'infrastructure', description: 'Decentralized validation & verification' },
   16: { category: 'other',          description: 'Decentralized advertising network' },
-  17: { category: 'vision',         description: '3D generation, rendering & avatars' },
-  18: { category: 'compute',        description: 'Distributed AI compute orchestration' },
-  19: { category: 'compute',        description: 'High-throughput AI inference marketplace' },
+  17: { category: 'vision',         description: '3D generation, rendering & avatars',              gpu: true },
+  18: { category: 'compute',        description: 'Distributed AI compute orchestration',            gpu: true },
+  19: { category: 'compute',        description: 'High-throughput AI inference marketplace',        gpu: true },
   20: { category: 'ai',             description: 'Autonomous AI agent framework' },
   21: { category: 'audio',          description: 'AI podcast generation & audio content' },
   22: { category: 'data',           description: 'Decentralized web scraping & data oracle' },
   23: { category: 'nlp',            description: 'Niche topic search & knowledge distillation' },
-  24: { category: 'vision',         description: 'Multimodal LLM & video understanding' },
-  25: { category: 'science',        description: 'Protein structure prediction & drug discovery' },
+  24: { category: 'vision',         description: 'Multimodal LLM & video understanding',            gpu: true },
+  25: { category: 'science',        description: 'Protein structure prediction & drug discovery',   gpu: true },
   26: { category: 'storage',        description: 'Decentralized redundant data storage' },
-  27: { category: 'compute',        description: 'Distributed GPU compute marketplace' },
+  27: { category: 'compute',        description: 'Distributed GPU compute marketplace',             gpu: true },
   28: { category: 'storage',        description: 'Decentralized AI data storage (0G)' },
-  29: { category: 'nlp',            description: 'Continual pretraining & cold-start optimization' },
+  29: { category: 'nlp',            description: 'Continual pretraining & cold-start optimization', gpu: true },
   30: { category: 'security',       description: 'Deepfake detection & media authenticity' },
-  37: { category: 'nlp',            description: 'LLM task-specific fine-tuning' },
-  38: { category: 'compute',        description: 'Distributed ML training across GPUs' },
-  39: { category: 'compute',        description: 'Edge device ML optimization & pruning' },
+  34: { category: 'nlp',            description: 'Distributed model training & pretraining',        gpu: true },
+  37: { category: 'nlp',            description: 'LLM task-specific fine-tuning',                   gpu: true },
+  38: { category: 'compute',        description: 'Distributed ML training across GPUs',             gpu: true },
+  39: { category: 'compute',        description: 'Edge device ML optimization & pruning',           gpu: true },
+  52: { category: 'compute',        description: 'Distributed GPU inference network',               gpu: true },
 }
 
 // ── GET /api/subnets ──────────────────────────────────────────────────────────
@@ -190,11 +189,17 @@ async function refreshCache() {
 }
 
 async function buildSubnetData() {
-  // Parallel: pool data + TAO flow data
-  const [poolJson, flowJson] = await Promise.all([
-    apiGet('/api/dtao/pool/latest/v1', { per_page: 300 }),
-    apiGet('/api/dtao/tao_flow/v1', { per_page: 300 }),
+  // Parallel: pool + flow + registration cost + pruning/reg-date
+  // 4 Taostats calls total — within the 5 req/min free-tier limit
+  const [poolJson, flowJson, costJson, pruningJson] = await Promise.all([
+    apiGet('/api/dtao/pool/latest/v1',                      { per_page: 300 }),
+    apiGet('/api/dtao/tao_flow/v1',                         { per_page: 300 }),
+    apiGet('/api/subnet/registration_cost/latest/v1',       { per_page: 300 }).catch(() => null),
+    apiGet('/api/subnet/pruning/latest/v1',                 { per_page: 300 }).catch(() => null),
   ])
+
+  const currentBlock  = poolJson.data?.[0]?.block_number ?? 0
+  const BLOCK_TIME_MS = 12_000  // ~12 s per block on Bittensor mainnet
 
   // Build flow lookup (netuid → TAO daily flow)
   const flowMap = new Map()
@@ -204,16 +209,46 @@ async function buildSubnetData() {
     if (netuid > 0) flowMap.set(netuid, f.tao_flow / RAO)
   }
 
-  // Normalise pool records and merge flow data
+  // Build registration cost lookup (netuid → TAO)
+  // Field name varies across API versions; try common names defensively
+  const costMap = new Map()
+  for (const c of costJson?.data || []) {
+    const rawCost = parseFloat(c.cost ?? c.registration_cost ?? c.burn ?? 0)
+    if (rawCost > 0) costMap.set(Number(c.netuid), rawCost / RAO)
+  }
+
+  // Build registration-date lookup from pruning endpoint
+  // registered_at_block → approximate ISO timestamp via block time
+  const pruningMap = new Map()
+  for (const p of pruningJson?.data || []) {
+    const regBlock = p.registered_at_block || 0
+    let registeredAt = null
+    if (regBlock > 0 && currentBlock > 0) {
+      const blocksAgo = Math.max(0, currentBlock - regBlock)
+      registeredAt = new Date(Date.now() - blocksAgo * BLOCK_TIME_MS).toISOString()
+    }
+    pruningMap.set(Number(p.netuid), { registered_at: registeredAt, registered_block: regBlock })
+  }
+
+  // Normalise pool records and merge all supplemental data
   const data = (poolJson.data || []).map(raw => {
     const subnet = normalizePool(raw)
     const meta = SUBNET_META[subnet.netuid]
     if (meta) {
       subnet.category    = meta.category
       subnet.description = meta.description
+      if (meta.gpu) subnet.gpu_intensive = true
     }
     if (flowMap.has(subnet.netuid)) {
       subnet.tao_flow_1d = flowMap.get(subnet.netuid)
+    }
+    if (costMap.has(subnet.netuid)) {
+      subnet.reg_cost_tao = costMap.get(subnet.netuid)
+    }
+    const pruning = pruningMap.get(subnet.netuid)
+    if (pruning) {
+      subnet.registered_at    = pruning.registered_at
+      subnet.registered_block = pruning.registered_block
     }
     return subnet
   })
@@ -224,7 +259,7 @@ async function buildSubnetData() {
     source: 'taostats',
     // Expose pagination meta so /api/stats can reuse this without an extra API call
     total_subnets: poolJson.pagination?.total_items ?? data.length,
-    block_height: poolJson.data?.[0]?.block_number ?? 0,
+    block_height: currentBlock,
   }
 }
 

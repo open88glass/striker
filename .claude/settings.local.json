@@ -20,7 +20,11 @@
       "Bash(kill %1)",
       "Bash(node --check server.js)",
       "Bash(npx vite:*)",
-      "Bash(wc -l /c/Users/aaa/Documents/Open/striker/src/components/*.jsx)"
+      "Bash(wc -l /c/Users/aaa/Documents/Open/striker/src/components/*.jsx)",
+      "WebFetch(domain:api.taostats.io)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:taostats.io)",
+      "WebFetch(domain:termo.ai)"
     ]
   }
 }
