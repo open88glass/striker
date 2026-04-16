@@ -9,3 +9,10 @@ export async function fetchStats() {
   if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`)
   return res.json()
 }
+
+export async function fetchSparkline(netuid) {
+  const res = await fetch(`/api/sparkline/${netuid}`)
+  if (!res.ok) return []
+  const json = await res.json()
+  return json.data ?? []
+}

@@ -24,7 +24,11 @@
       "WebFetch(domain:api.taostats.io)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "WebFetch(domain:taostats.io)",
-      "WebFetch(domain:termo.ai)"
+      "WebFetch(domain:termo.ai)",
+      "WebFetch(domain:api.tao.app)",
+      "WebFetch(domain:docs.tao.app)",
+      "WebFetch(domain:tao.app)",
+      "WebFetch(domain:www.tao.app)"
     ]
   }
 }

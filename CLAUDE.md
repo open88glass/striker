@@ -23,26 +23,35 @@ There are no tests. There is no linter configured.
 ## Environment
 
 Copy `.env.example` to `.env` and optionally set:
-- `TAOSTATS_API_KEY` — free key from taostats.io/pro; if omitted the app runs in **demo mode** with seeded mock data
+- `TAO_APP_API_KEY` — API key from tao.app; if omitted the app runs in **demo mode** with seeded mock data
 - `PORT` — defaults to 3001
 
 ## Architecture
 
 **Two-process dev setup**: Vite proxies `/api/*` requests to Express (`localhost:3001`). In production, Express serves the `dist/` static bundle directly and handles API routes.
 
-**Backend** ([server.js](server.js)):
-- `GET /api/subnets` — fetches pool data from TaoStats API (60s in-memory cache); falls back to mock data on error or missing API key
-- `GET /api/stats` — aggregates TAO price (CoinGecko), subnet count, total market cap, block height
-- Subnet metadata (category, description, GPU-intensive flag) is hardcoded in `server.js` for ~47 known subnets
-- Unit conversion: TaoStats returns values in **rao** (1 TAO = 1e9 rao); `server.js` divides by 1e9 before sending to frontend
+### Data pipeline
 
-**Frontend** ([src/](src/)):
-- [App.jsx](src/App.jsx) — top-level state, polling (30s interval), demo-mode detection
-- [Header.jsx](src/components/Header.jsx) — global stats bar (TAO price, market cap, block height)
-- [SubnetTable.jsx](src/components/SubnetTable.jsx) — sortable/filterable table; category filter tabs
-- [SubnetModal.jsx](src/components/SubnetModal.jsx) — per-subnet detail view with 7-day sparkline
-- [utils/format.js](src/utils/format.js) — TAO/USD formatting helpers
-- [utils/api.js](src/utils/api.js) — thin fetch wrappers for both API endpoints
-- [utils/mockData.js](src/utils/mockData.js) — seeded LCG generator for deterministic demo data
+`buildSubnetData()` in [server.js](server.js) fires three tao.app requests in parallel on each cache miss:
+1. `/api/beta/subnet_screener` — market data (price, volume, market cap, tao_in, price changes)
+2. `/api/beta/analytics/subnets/info` — registration block + owner coldkey, built into `infoMap` keyed by netuid
+3. `/api/beta/blocks/latest` — current block height
+
+`normalizeSubnet(raw, infoMap)` merges these into a flat schema. `SUBNET_META` (hardcoded in server.js for ~47 known subnets) then enriches `category`, `description`, and `gpu_intensive`.
+
+**Known gaps** — hardcoded to `0`/`null` because tao.app screener doesn't return them:
+- `reg_cost_tao` — may be available in the info endpoint; check `[info sample FULL]` in server logs
+- `validators` / `miners` — requires per-subnet metagraph calls (100+ requests/refresh, impractical at 5 req/min rate limit)
+- `seven_day_prices` — empty at load; fetched on-demand via `GET /api/sparkline/:netuid` when a modal opens
+
+**Cache strategy**: `/api/subnets` uses stale-while-revalidate (60s TTL). Stale cache is returned immediately while a background refresh runs, so clients are never blocked.
+
+**Stats aggregation**: `total_market_cap_tao` and `total_volume_24h_tao` shown in the header are computed client-side in [App.jsx](src/App.jsx) by summing subnet data — not from `/api/stats`. The stats endpoint only contributes TAO price (CoinGecko) and block height (reused from subnet cache).
+
+### Frontend
+
+[App.jsx](src/App.jsx) owns all state and polls every 30s. It passes `subnets[]` to `SubnetTable` and `selectedSubnet` to `SubnetModal`. The `demo` flag from the API response drives the amber warning banner.
+
+The `rank` field is `null` in live data (not assigned by tao.app); the table falls back to `s.netuid` for the `#` column.
 
 **Styling**: Tailwind CSS dark theme with zinc/violet accents. No component library — all UI is custom JSX + Tailwind classes.

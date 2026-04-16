@@ -89,9 +89,9 @@ export default function App() {
             <span className="flex-shrink-0 mt-0.5">⚠</span>
             <span>
               <strong className="text-amber-400">Demo mode</strong> — mock data with realistic values.
-              Add your <code className="bg-zinc-800 px-1 rounded text-amber-300 text-xs">TAOSTATS_API_KEY</code> to{' '}
+              Add your <code className="bg-zinc-800 px-1 rounded text-amber-300 text-xs">TAO_APP_API_KEY</code> to{' '}
               <code className="bg-zinc-800 px-1 rounded text-amber-300 text-xs">.env</code> for live Bittensor data
-              (free key at <span className="underline decoration-dotted">taostats.io/pro</span>).
+              (get a key at <span className="underline decoration-dotted">tao.app</span>).
             </span>
           </div>
         )}

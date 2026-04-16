@@ -11,11 +11,10 @@ const __dirname = path.dirname(__filename)
 
 const app = express()
 const PORT = process.env.PORT || 3001
-const API_KEY = process.env.TAOSTATS_API_KEY || ''
-const BASE = 'https://api.taostats.io'
-const RAO = 1e9           // 1 TAO = 1e9 rao (smallest unit)
-const API_TIMEOUT = 25_000 // Taostats can take ~13-15 s on free tier
-const CACHE_TTL   = 60_000 // 60 s keeps us within 5 req/min (4 Taostats + 1 CoinGecko per cycle)
+const API_KEY = process.env.TAO_APP_API_KEY || ''
+const BASE = 'https://api.tao.app'
+const API_TIMEOUT = 15_000 // tao.app is responsive; 15 s is generous
+const CACHE_TTL   = 60_000 // 60 s — 3 tao.app calls + 1 CoinGecko per cycle
 
 // Simple in-memory cache
 const cache = { data: null, ts: 0 }
@@ -50,64 +49,56 @@ async function apiGet(path, params = {}) {
   const url = new URL(BASE + path)
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
   const res = await fetch(url.toString(), {
-    headers: { Authorization: API_KEY },
+    headers: { 'X-API-Key': API_KEY },
     signal: AbortSignal.timeout(API_TIMEOUT),
   })
-  if (!res.ok) throw new Error(`Taostats ${res.status} on ${path}`)
+  if (!res.ok) throw new Error(`tao.app ${res.status} on ${path}`)
   return res.json()
 }
 
-// ── Normalise a pool record into our schema ───────────────────────────────────
-function normalizePool(raw) {
+// ── Normalise a tao.app subnet_screener record into our schema ────────────────
+// tao.app already returns values in TAO — no rao conversion needed.
+function normalizeSubnet(raw, infoMap) {
   const netuid = Number(raw.netuid)
-  const priceTao = parseFloat(raw.price || 0)
-
-  // Price-change fields arrive as plain percentages (e.g. 4.04 = +4.04%)
-  const change1d = parseFloat(raw.price_change_1_day || 0)
-  const change7d = parseFloat(raw.price_change_1_week || 0)
-
+  const info = infoMap.get(netuid) || {}
   return {
     netuid,
-    name: raw.name || `Subnet ${netuid}`,
+    name: raw.subnet_name || `Subnet ${netuid}`,
     symbol: raw.symbol || `SN${netuid}`,
     description: '',
-    category: 'other',            // not in API, enriched later from mock meta
-    status: raw.startup_mode ? 'startup' : 'active',
-    price_tao: priceTao,
-    market_cap_tao: parseFloat(raw.market_cap || 0) / RAO,
-    volume_24h_tao: parseFloat(raw.tao_volume_24_hr || 0) / RAO,
-    buy_volume_24h_tao: parseFloat(raw.tao_buy_volume_24_hr || 0) / RAO,
-    sell_volume_24h_tao: parseFloat(raw.tao_sell_volume_24_hr || 0) / RAO,
-    emission_pct: 0,              // needs separate endpoint
-    tao_in: parseFloat(raw.total_tao || 0) / RAO,
-    reg_cost_tao: 0,              // needs hyperparameter endpoint
-    registered_at: null,
-    registered_block: 0,
-    validators: 0,                // needs metagraph endpoint
+    category: 'other',          // enriched below from SUBNET_META
+    status: 'active',
+    price_tao: parseFloat(raw.price || 0),
+    market_cap_tao: parseFloat(raw.market_cap_tao || 0),
+    volume_24h_tao: parseFloat(raw.total_volume_tao_1d || 0),
+    buy_volume_24h_tao: parseFloat(raw.buy_volume_tao_1d || 0),
+    sell_volume_24h_tao: parseFloat(raw.sell_volume_tao_1d || 0),
+    emission_pct: parseFloat(raw.emission_pct || 0),
+    tao_in: parseFloat(raw.tao_in || 0),
+    reg_cost_tao: 0,            // not available from tao.app screener
+    registered_at: blockNumToIso(info.network_registered_at),
+    registered_block: info.network_registered_at || 0,
+    validators: 0,              // needs metagraph endpoint
     miners: 0,
     neurons: 0,
-    price_change_1d: change1d,
-    price_change_7d: change7d,
-    price_change_1h: parseFloat(raw.price_change_1_hour || 0),
-    price_change_1m: parseFloat(raw.price_change_1_month || 0),
-    tao_flow_1d: 0,               // merged from tao_flow endpoint
-    tao_flow_7d: 0,
-    owner: '',
-    gpu_intensive: false,              // enriched from SUBNET_META in buildSubnetData
-    // Extra fields from pool endpoint
-    fear_and_greed: raw.fear_and_greed_index,
-    fear_and_greed_sentiment: raw.fear_and_greed_sentiment,
-    highest_price_24h: parseFloat(raw.highest_price_24_hr || 0) || null,
-    lowest_price_24h: parseFloat(raw.lowest_price_24_hr || 0) || null,
-    buys_24h: raw.buys_24_hr || 0,
-    sells_24h: raw.sells_24_hr || 0,
-    startup_mode: !!raw.startup_mode,
+    price_change_1d: parseFloat(raw.price_1d_pct_change || 0),
+    price_change_7d: parseFloat(raw.price_7d_pct_change || 0),
+    price_change_1h: parseFloat(raw.price_1h_pct_change || 0),
+    price_change_1m: parseFloat(raw.price_1m_pct_change || 0),
+    tao_flow_1d: parseFloat(raw.net_volume_tao_24h || 0),
+    tao_flow_7d: parseFloat(raw.net_volume_tao_7d || 0),
+    owner: raw.owner_coldkey || info.owner_coldkey || '',
+    gpu_intensive: false,       // enriched from SUBNET_META
+    fear_and_greed: null,       // per-subnet not available; use /api/beta/analytics/macro/fear_greed separately if needed
+    fear_and_greed_sentiment: null,
+    highest_price_24h: null,
+    lowest_price_24h: null,
+    buys_24h: 0,
+    sells_24h: 0,
+    startup_mode: false,
     root_prop: parseFloat(raw.root_prop || 0),
-    rank: raw.rank,
-    seven_day_prices: (raw.seven_day_prices || []).map(p => ({
-      t: p.timestamp,
-      price: parseFloat(p.price),
-    })),
+    rank: null,
+    seven_day_prices: [],       // fetched on-demand via GET /api/sparkline/:netuid
   }
 }
 
@@ -188,67 +179,48 @@ async function refreshCache() {
   cache.ts   = Date.now()
 }
 
+// Bittensor genesis ~2023-03-15, ~12s per block — used to convert block numbers to dates
+const GENESIS_MS   = new Date('2023-03-15T00:00:00Z').getTime()
+const BLOCK_TIME_MS = 12_000
+
+function blockNumToIso(blockNum) {
+  if (!blockNum) return null
+  return new Date(GENESIS_MS + blockNum * BLOCK_TIME_MS).toISOString()
+}
+
 async function buildSubnetData() {
-  // Parallel: pool + flow + registration cost + pruning/reg-date
-  // 4 Taostats calls total — within the 5 req/min free-tier limit
-  const [poolJson, flowJson, costJson, pruningJson] = await Promise.all([
-    apiGet('/api/dtao/pool/latest/v1',                      { per_page: 300 }),
-    apiGet('/api/dtao/tao_flow/v1',                         { per_page: 300 }),
-    apiGet('/api/subnet/registration_cost/latest/v1',       { per_page: 300 }).catch(() => null),
-    apiGet('/api/subnet/pruning/latest/v1',                 { per_page: 300 }).catch(() => null),
+  // 3 tao.app calls in parallel: screener (all subnet market data) +
+  // subnets/info (registration date, owner) + latest block (block height)
+  const [screenerJson, infoJson, blocksJson] = await Promise.all([
+    apiGet('/api/beta/subnet_screener'),
+    apiGet('/api/beta/analytics/subnets/info'),
+    apiGet('/api/beta/blocks/latest', { limit: 1 }),
   ])
 
-  const currentBlock  = poolJson.data?.[0]?.block_number ?? 0
-  const BLOCK_TIME_MS = 12_000  // ~12 s per block on Bittensor mainnet
+  // Debug: log full raw shapes so we can find reg_cost / validators / miners field names
+  const infoSample = Array.isArray(infoJson) ? infoJson[0] : (infoJson.data || [])[0]
+  const screenerSample = Array.isArray(screenerJson) ? screenerJson[0] : (screenerJson.data || [])[0]
+  console.log('[info sample FULL]', JSON.stringify(infoSample, null, 2))
+  console.log('[screener sample FULL]', JSON.stringify(screenerSample, null, 2))
 
-  // Build flow lookup (netuid → TAO daily flow)
-  const flowMap = new Map()
-  for (const f of flowJson.data || []) {
-    const netuid = Number(f.netuid)
-    // Skip root (netuid 0) — its raw value is anomalous in the flow endpoint
-    if (netuid > 0) flowMap.set(netuid, f.tao_flow / RAO)
-  }
+  // tao.app blocks endpoint may use 'id' or 'number' instead of 'block_number'
+  const blockItem = Array.isArray(blocksJson) ? blocksJson[0] : (blocksJson.data?.[0] ?? blocksJson)
+  const currentBlock = blockItem?.block_number ?? blockItem?.number ?? blockItem?.id ?? blockItem?.height ?? 0
 
-  // Build registration cost lookup (netuid → TAO)
-  // Field name varies across API versions; try common names defensively
-  const costMap = new Map()
-  for (const c of costJson?.data || []) {
-    const rawCost = parseFloat(c.cost ?? c.registration_cost ?? c.burn ?? 0)
-    if (rawCost > 0) costMap.set(Number(c.netuid), rawCost / RAO)
-  }
+  // Build info lookup (netuid → info record)
+  const infoItems = Array.isArray(infoJson) ? infoJson : (infoJson.data || [])
+  const infoMap = new Map()
+  for (const s of infoItems) infoMap.set(Number(s.netuid), s)
 
-  // Build registration-date lookup from pruning endpoint
-  // registered_at_block → approximate ISO timestamp via block time
-  const pruningMap = new Map()
-  for (const p of pruningJson?.data || []) {
-    const regBlock = p.registered_at_block || 0
-    let registeredAt = null
-    if (regBlock > 0 && currentBlock > 0) {
-      const blocksAgo = Math.max(0, currentBlock - regBlock)
-      registeredAt = new Date(Date.now() - blocksAgo * BLOCK_TIME_MS).toISOString()
-    }
-    pruningMap.set(Number(p.netuid), { registered_at: registeredAt, registered_block: regBlock })
-  }
-
-  // Normalise pool records and merge all supplemental data
-  const data = (poolJson.data || []).map(raw => {
-    const subnet = normalizePool(raw)
+  // Normalise screener records and merge SUBNET_META enrichment
+  const screenerItems = Array.isArray(screenerJson) ? screenerJson : (screenerJson.data || [])
+  const data = screenerItems.map(raw => {
+    const subnet = normalizeSubnet(raw, infoMap)
     const meta = SUBNET_META[subnet.netuid]
     if (meta) {
       subnet.category    = meta.category
       subnet.description = meta.description
       if (meta.gpu) subnet.gpu_intensive = true
-    }
-    if (flowMap.has(subnet.netuid)) {
-      subnet.tao_flow_1d = flowMap.get(subnet.netuid)
-    }
-    if (costMap.has(subnet.netuid)) {
-      subnet.reg_cost_tao = costMap.get(subnet.netuid)
-    }
-    const pruning = pruningMap.get(subnet.netuid)
-    if (pruning) {
-      subnet.registered_at    = pruning.registered_at
-      subnet.registered_block = pruning.registered_block
     }
     return subnet
   })
@@ -256,12 +228,33 @@ async function buildSubnetData() {
   return {
     data,
     demo: false,
-    source: 'taostats',
-    // Expose pagination meta so /api/stats can reuse this without an extra API call
-    total_subnets: poolJson.pagination?.total_items ?? data.length,
+    source: 'tao.app',
+    total_subnets: screenerJson.total ?? data.length,
     block_height: currentBlock,
   }
 }
+
+// ── GET /api/sparkline/:netuid ────────────────────────────────────────────────
+app.get('/api/sparkline/:netuid', async (req, res) => {
+  if (!API_KEY) return res.json({ data: [] })
+  try {
+    const netuid = parseInt(req.params.netuid, 10)
+    const end   = new Date()
+    const start = new Date(end - 7 * 24 * 60 * 60 * 1000)
+    const json  = await apiGet('/api/beta/subnets/ohlc', {
+      netuid,
+      start: start.toISOString(),
+      end:   end.toISOString(),
+      interval_minutes: 240,  // 4-hour candles → ~42 points over 7 days
+    })
+    const items = Array.isArray(json) ? json : (json.data || [])
+    const data  = items.map(c => ({ t: c.time_window_unix_ms, price: parseFloat(c.close) }))
+    res.json({ data })
+  } catch (err) {
+    console.error('[Sparkline]', err.message)
+    res.json({ data: [] })
+  }
+})
 
 // ── GET /api/stats ────────────────────────────────────────────────────────────
 app.get('/api/stats', async (_req, res) => {
@@ -303,7 +296,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 app.listen(PORT, () => {
-  const mode = API_KEY ? 'LIVE (Taostats API)' : 'DEMO (mock data)'
+  const mode = API_KEY ? 'LIVE (tao.app API)' : 'DEMO (mock data)'
   console.log(`\n  Bittensor Dashboard  →  http://localhost:${PORT}`)
   console.log(`  Mode: ${mode}\n`)
 })

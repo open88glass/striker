@@ -4,7 +4,7 @@ A real-time dashboard for monitoring Bittensor subnet activity — prices, marke
 
 ## Features
 
-- Live subnet data via the TaoStats API (auto-refreshes every 30s)
+- Live subnet data via the tao.app API (auto-refreshes every 30s)
 - Global stats bar: TAO price, total market cap, block height
 - Sortable, filterable table with category tabs
 - Per-subnet detail modal with 7-day price sparkline
@@ -23,11 +23,11 @@ cp .env.example .env
 Edit `.env`:
 
 ```
-TAOSTATS_API_KEY=your_key_here   # free key from taostats.io/pro
-PORT=3001                         # optional, defaults to 3001
+TAO_APP_API_KEY=your_key_here   # API key from tao.app
+PORT=3001                        # optional, defaults to 3001
 ```
 
-If `TAOSTATS_API_KEY` is omitted, the app runs in **demo mode** with mock data.
+If `TAO_APP_API_KEY` is omitted, the app runs in **demo mode** with mock data.
 
 ## Running
 
@@ -53,11 +53,12 @@ Two-process dev setup: Vite proxies `/api/*` requests to Express on port 3001. I
 
 | Route | Description |
 |---|---|
-| `GET /api/subnets` | Fetches pool data from TaoStats (60s cache); falls back to mock data on error |
+| `GET /api/subnets` | Fetches all subnet market data from tao.app (60s cache); falls back to mock data on error |
+| `GET /api/sparkline/:netuid` | Fetches 7-day OHLC from tao.app on demand (called when a subnet modal opens) |
 | `GET /api/stats` | Aggregates TAO price (CoinGecko), subnet count, total market cap, block height |
 
 - Subnet metadata (category, description, GPU-intensive flag) is hardcoded for ~47 known subnets
-- TaoStats returns values in **rao**; server divides by 1e9 before sending to the frontend
+- tao.app returns values already in TAO — no unit conversion needed
 
 ### Frontend ([src/](src/))
 
@@ -77,4 +78,4 @@ Two-process dev setup: Vite proxies `/api/*` requests to Express on port 3001. I
 
 - **Frontend**: React 18, Vite, Tailwind CSS, lucide-react
 - **Backend**: Node.js, Express
-- **Data**: TaoStats API, CoinGecko API
+- **Data**: tao.app API, CoinGecko API

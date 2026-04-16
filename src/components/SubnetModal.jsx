@@ -1,8 +1,10 @@
+import { useState, useEffect } from 'react'
 import {
   X, ExternalLink, Cpu, Users, Activity, TrendingUp,
   TrendingDown, DollarSign, Calendar, Hash, Shield, Zap, BarChart2,
 } from 'lucide-react'
 import { formatTAO, formatPct, formatDate, formatBlock, truncateAddress } from '../utils/format.js'
+import { fetchSparkline } from '../utils/api.js'
 
 const CAT_STYLE = {
   nlp:            'bg-blue-900/30 text-blue-400 border-blue-700/30',
@@ -75,13 +77,21 @@ function InfoRow({ icon: Icon, label, value, mono }) {
 }
 
 export default function SubnetModal({ subnet, onClose }) {
+  const [sparkline, setSparkline] = useState([])
+
+  useEffect(() => {
+    if (!subnet) return
+    setSparkline([])
+    fetchSparkline(subnet.netuid).then(setSparkline).catch(() => {})
+  }, [subnet?.netuid])
+
   if (!subnet) return null
 
   const pos1d = subnet.price_change_1d >= 0
   const pos7d = subnet.price_change_7d >= 0
   const catStyle = CAT_STYLE[subnet.category] ?? CAT_STYLE.other
   const fgColor = FG_COLORS[subnet.fear_and_greed_sentiment?.toLowerCase()] ?? '#a3a3a3'
-  const hasPriceHistory = subnet.seven_day_prices?.length > 1
+  const hasPriceHistory = sparkline.length > 1
 
   return (
     <div
@@ -140,9 +150,9 @@ export default function SubnetModal({ subnet, onClose }) {
                 {pos7d ? '+' : ''}{subnet.price_change_7d?.toFixed(2)}%
               </span>
             </div>
-            <Sparkline prices={subnet.seven_day_prices} w={580} h={60} />
+            <Sparkline prices={sparkline} w={580} h={60} />
             <div className="flex justify-between text-xs text-zinc-600 mt-1">
-              <span>{subnet.seven_day_prices[0] ? new Date(subnet.seven_day_prices[0].t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+              <span>{sparkline[0] ? new Date(sparkline[0].t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
               <span>Now: {formatTAO(subnet.price_tao, 6)}</span>
             </div>
           </div>
